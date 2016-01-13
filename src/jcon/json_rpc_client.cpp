@@ -240,6 +240,28 @@ void JsonRpcClient::jsonResponseReceived(const QJsonObject& response)
         return;
     }
 
+    const auto QVariantMapType = QMetaType::type("QVariantMap");
+    if (result.type() == QVariantMapType) {
+      const auto& map = result.value<QVariantMap>();
+
+      if (map.contains("typeName") && map.contains("object") && map.value("object").type() == QVariantMapType ) {
+        const auto& typeName = map.value("typeName", "").toString();
+        const auto& metaType = QMetaType::type(typeName.toUtf8());
+
+        if (metaType != QMetaType::UnknownType && QMetaType::hasRegisteredConverterFunction(QVariantMapType, metaType)) {
+          const auto& objectMap = map.value("object").value<QVariantMap>();
+          auto ptr = QMetaType::create(metaType);
+          QMetaType::convert(&objectMap, QMetaType::type("QVariantMap"), ptr, metaType);
+
+          QVariant resultObj(metaType, ptr);
+          emit it->second->result(resultObj);
+          QMetaType::destroy(metaType, ptr);
+          m_outstanding_requests.erase(it);
+          return;
+        }
+      }
+    }
+
     emit it->second->result(result);
     m_outstanding_requests.erase(it);
 }

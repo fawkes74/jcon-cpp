@@ -12,7 +12,7 @@
 
 namespace jcon {
 
-const QString JsonRpcServer::InvalidRequestId = "";
+const QString JsonRpcServer::InvalidRequestId = QStringLiteral("");
 
 JsonRpcServer::JsonRpcServer(QObject* parent, JsonRpcLoggerPtr logger)
     : QObject(parent)
@@ -262,15 +262,14 @@ bool JsonRpcServer::doCall(QObject* object,
         arguments << generic_argument;
     }
 
-    const char* return_type_name = meta_method.typeName();
-    int return_type = QMetaType::type(return_type_name);
-    if (return_type != QMetaType::Void) {
-        return_value = QVariant(return_type, nullptr);
-    }
+    void* ptr = nullptr;
+    const auto metaType = meta_method.returnType();
+    if (metaType != QMetaType::Void && metaType != QMetaType::UnknownType)
+      ptr = QMetaType::create(metaType, nullptr);
 
     QGenericReturnArgument return_argument(
-        return_type_name,
-        const_cast<void*>(return_value.constData())
+        QMetaType::typeName(metaType),
+        ptr
     );
 
     // perform the call
@@ -289,6 +288,20 @@ bool JsonRpcServer::doCall(QObject* object,
         arguments.value(8),
         arguments.value(9)
     );
+
+    const auto mapType = QMetaType::type("QVariantMap");
+    if (QMetaType::hasRegisteredConverterFunction(metaType, mapType)) {
+      auto dstPtr = QMetaType::create(mapType);
+      QMetaType::convert(ptr, metaType, dstPtr, mapType);
+
+      QVariantMap returnMap;
+      returnMap.insert("typeName", QMetaType::typeName(metaType));
+      returnMap.insert("object", QVariant(mapType, dstPtr));
+      return_value = returnMap;
+      QMetaType::destruct(mapType, dstPtr);
+    }
+
+    QMetaType::destruct(metaType, ptr);
 
     if (!ok) {
         // qDebug() << "calling" << meta_method.methodSignature() << "failed.";
@@ -321,6 +334,9 @@ QJsonDocument JsonRpcServer::createResponse(const QString& request_id,
         res_json_obj["result"] = return_value.toDouble();
     } else if (return_value.type() == QVariant::Bool) {
         res_json_obj["result"] = return_value.toBool();
+    } else if (return_value.type() >= QVariant::UserType) {
+        auto ret_doc = QJsonDocument::fromVariant(return_value);
+        res_json_obj["result"] = ret_doc.object();
     } else {
         auto msg =
             QString("method '%1' has unknown return type: %2")
