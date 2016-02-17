@@ -96,6 +96,63 @@ JsonRpcRequestPtr JsonRpcClient::callAsyncExpandArgs(const QString& method,
     return request;
 }
 
+void JsonRpcClient::registerNotificationHandler(QObject* obj, const char* methodName, const QString& notificationName)
+{
+  if (obj == nullptr)
+    return;
+
+  int offset = 0;
+  if (*methodName == '1')
+    offset = 1;
+
+  const auto methodSignature = obj->metaObject()->normalizedSignature(methodName+offset);
+  const auto methodIndex = obj->metaObject()->indexOfMethod(methodSignature.constData());
+
+  if (methodIndex == -1) {
+    qDebug() << QString("Method %1 not found.").arg(methodName+offset);
+    return;
+  }
+
+  const auto metaMethod = obj->metaObject()->method(methodIndex);
+
+  if ((metaMethod.methodType() == QMetaMethod::Method || metaMethod.methodType() == QMetaMethod::Slot) && metaMethod.isValid()) {
+    if (m_registered_notification_handlers.contains(notificationName, {obj, metaMethod})) {
+      qDebug() << "Already registered.";
+      return;
+    }
+
+    QString notificationSignature = notificationName;
+
+    if (!notificationSignature.contains('(')) {
+      auto parameters = "(" + methodSignature.split('(').last();
+      notificationSignature.append(parameters);
+    }
+
+    m_registered_notification_handlers.insert(notificationName, {obj, metaMethod});
+
+    if (isConnected())
+      registerSignalHandler(notificationSignature);
+    else
+      QObject::connect(this, &JsonRpcClient::socketConnected, this, [this,notificationSignature](){registerSignalHandler(notificationSignature);});
+  } else {
+    qDebug() << QString("Given method %1 is not invokable.").arg(methodName);
+  }
+}
+
+void JsonRpcClient::registerSignalHandler(const QString &name) {
+
+  const auto parts = name.split("/");
+  QString domain, signalName(name);
+
+  if (parts.size() > 1) {
+    domain = parts.first() + "/";
+    signalName = parts.at(1);
+  }
+
+  auto request = callAsync(domain + "registerSignalHandler", signalName);
+  QObject::connect(request.get(), &JsonRpcRequest::error, this, [](int code, const QString& msg, const QVariant& data){ qDebug() << "Error registering signal handler. Error message is" << msg;});
+}
+
 std::pair<JsonRpcRequestPtr, QJsonObject>
 JsonRpcClient::prepareCall(const QString& method)
 {
@@ -144,6 +201,15 @@ bool JsonRpcClient::connectToServer(const QString& host, int port)
 
     return true;
 }
+
+void JsonRpcClient::connectToServerAsync(const QString& host, int port) {
+  m_endpoint->connectToHostAsync(host, port);
+
+  connect(m_endpoint.get(), &JsonRpcEndpoint::jsonObjectReceived,
+          this, &JsonRpcClient::jsonResponseReceived);
+}
+
+
 
 void JsonRpcClient::disconnectFromServer()
 {
@@ -221,6 +287,12 @@ void JsonRpcClient::jsonResponseReceived(const QJsonObject& response)
         return;
     }
 
+    // If no id is set, the message has to be a notification, according to the standard.
+    if (response.value("id").isUndefined()) {
+        handleNotificationFromServer(response);
+        return;
+    }
+
     if (response["result"].isUndefined()) {
         logError("result is undefined");
         return;
@@ -232,38 +304,55 @@ void JsonRpcClient::jsonResponseReceived(const QJsonObject& response)
         return;
     }
 
-    QVariant result = response.value("result").toVariant();
-
-    auto it = m_outstanding_requests.find(id);
+    const auto it = m_outstanding_requests.find(id);
     if (it == m_outstanding_requests.end()) {
         logError(QString("got response to non-existing request: %1").arg(id));
         return;
     }
 
-    const auto QVariantMapType = QMetaType::type("QVariantMap");
-    if (result.type() == QVariantMapType) {
-      const auto& map = result.value<QVariantMap>();
-
-      if (map.contains("typeName") && map.contains("object") && map.value("object").type() == QVariantMapType ) {
-        const auto& typeName = map.value("typeName", "").toString();
-        const auto& metaType = QMetaType::type(typeName.toUtf8());
-
-        if (metaType != QMetaType::UnknownType && QMetaType::hasRegisteredConverterFunction(QVariantMapType, metaType)) {
-          const auto& objectMap = map.value("object").value<QVariantMap>();
-          auto ptr = QMetaType::create(metaType);
-          QMetaType::convert(&objectMap, QMetaType::type("QVariantMap"), ptr, metaType);
-
-          QVariant resultObj(metaType, ptr);
-          emit it->second->result(resultObj);
-          QMetaType::destroy(metaType, ptr);
-          m_outstanding_requests.erase(it);
-          return;
-        }
-      }
-    }
+    QVariant result = convertValue(response.value(QStringLiteral("result")));
 
     emit it->second->result(result);
     m_outstanding_requests.erase(it);
+}
+
+
+void JsonRpcClient::handleNotificationFromServer(const QJsonObject& notification)
+{
+    const auto methodName = notification.value(QStringLiteral("method"));
+
+    QVariantMap params;
+
+    if (notification.contains(QStringLiteral("params")))
+      params = processParameterSet(notification.value(QStringLiteral("params")).toObject());
+
+    if (methodName.isUndefined()) {
+      qDebug() << "No notification method given. Ignoring message...";
+      return;
+    }
+
+    for (auto& handler : m_registered_notification_handlers.values(methodName.toString())) {
+      QVariant return_value;
+      if (!invoke(handler.first, handler.second, params, return_value))
+        qDebug() << QString("Got a notification of type %1 from server. But could not call handler %2.")
+                    .arg(methodName.toString(), QString::fromLatin1(handler.second.name()));
+    }
+}
+
+
+QVariantMap JsonRpcClient::processParameterSet(const QJsonValue& parameters) const {
+    QVariantMap result;
+
+    if (!parameters.isObject())
+      return result;
+
+    const auto parametersObj = parameters.toObject();
+
+    for (auto parameter = parametersObj.constBegin (); parameter != parametersObj.constEnd (); ++parameter) {
+      result.insert(parameter.key(), convertValue(parameter.value()));
+    }
+
+    return result;
 }
 
 void JsonRpcClient::getJsonErrorInfo(const QJsonObject& response,
@@ -276,6 +365,7 @@ void JsonRpcClient::getJsonErrorInfo(const QJsonObject& response,
     message = error["message"].toString("unknown error");
     data = error.value("data").toVariant();
 }
+
 
 QString JsonRpcClient::getCallLogMessage(const QString& method,
                                          const QVariantList& params)

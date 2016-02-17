@@ -18,10 +18,10 @@ JsonRpcTcpServer::~JsonRpcTcpServer()
     close();
 }
 
-void JsonRpcTcpServer::listen(int port)
+bool JsonRpcTcpServer::listen(int port)
 {
     logInfo(QString("listening on port %2").arg(port));
-    m_server.listen(QHostAddress::Any, port);
+    return m_server.listen(QHostAddress::Any, port);
 }
 
 void JsonRpcTcpServer::close()

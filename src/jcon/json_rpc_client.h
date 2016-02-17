@@ -7,6 +7,7 @@
 #include "json_rpc_logger.h"
 #include "json_rpc_request.h"
 #include "json_rpc_result.h"
+#include "json_rpc_common.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -20,7 +21,7 @@ namespace jcon {
 
 class JsonRpcSocket;
 
-class JCON_API JsonRpcClient : public QObject
+class JCON_API JsonRpcClient : public QObject, public JsonRpcCommon
 {
     Q_OBJECT
 
@@ -33,6 +34,8 @@ public:
     virtual ~JsonRpcClient();
 
     bool connectToServer(const QString& host, int port);
+    void connectToServerAsync(const QString &host, int port);
+
     void disconnectFromServer();
 
     bool isConnected() const;
@@ -59,6 +62,8 @@ public:
 
     JsonRpcError lastError() const { return m_last_error; }
 
+    void registerNotificationHandler(QObject* obj, const char* methodName, const QString& notificationName);
+
 signals:
     /// Emitted when a connection has been made to the server.
     void socketConnected(QObject* socket);
@@ -79,6 +84,7 @@ private slots:
     void syncCallResult(const QVariant& result);
     void syncCallError(int code, const QString& message, const QVariant& data);
     void jsonResponseReceived(const QJsonObject& obj);
+    void registerSignalHandler(const QString& name);
 
 private:
     static const int CallTimeout = 5000;
@@ -110,6 +116,8 @@ private:
                                  QString& message,
                                  QVariant& data);
 
+    void handleNotificationFromServer(const QJsonObject& notification);
+
     typedef std::map<RequestId, JsonRpcRequestPtr> RequestMap;
 
     JsonRpcLoggerPtr m_logger;
@@ -117,6 +125,10 @@ private:
     RequestMap m_outstanding_requests;
     QVariant m_last_result;
     JsonRpcError m_last_error;
+
+    QMultiHash<QString,QPair<QObject*,QMetaMethod> > m_registered_notification_handlers;
+
+    QVariantMap processParameterSet(const QJsonValue& parameters) const;
 };
 
 typedef std::shared_ptr<JsonRpcClient> JsonRpcClientPtr;

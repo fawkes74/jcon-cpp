@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QVariant>
 #include <QMetaMethod>
+#include <QSignalSpy>
 
 namespace jcon {
 
@@ -27,9 +28,15 @@ JsonRpcServer::~JsonRpcServer()
 {
 }
 
-void JsonRpcServer::registerService(QObject* service)
+void JsonRpcServer::registerService(std::shared_ptr<QObject> service, const QString& domain)
 {
-    m_services.push_back(std::shared_ptr<QObject>(service));
+  for (auto pair : m_services) {
+    if (pair.first == domain || pair.second == service) {
+      qDebug() << "Service or namespace already registered.";
+      return;
+    }
+  }
+  m_services.push_back({domain, service});
 }
 
 void JsonRpcServer::jsonRequestReceived(const QJsonObject& request,
@@ -51,8 +58,15 @@ void JsonRpcServer::jsonRequestReceived(const QJsonObject& request,
 
     QString request_id = request.value("id").toString(InvalidRequestId);
 
+    auto endpoint = findClient(socket);
+
+    if (!endpoint) {
+        logError("invalid client socket, cannot send response");
+        return;
+    }
+
     QVariant return_value;
-    if (!dispatch(method_name, params, request_id, return_value)) {
+    if (!dispatch(endpoint, method_name, params, request_id, return_value)) {
         auto msg = QString("method '%1' not found, check name and "
                            "parameter types ").arg(method_name);
         logError(msg);
@@ -63,13 +77,6 @@ void JsonRpcServer::jsonRequestReceived(const QJsonObject& request,
                 createErrorResponse(request_id,
                                     JsonRpcError::EC_MethodNotFound,
                                     msg);
-
-            JsonRpcEndpoint* endpoint = findClient(socket);
-            if (!endpoint) {
-                logError("invalid client socket, cannot send response");
-                return;
-            }
-
             endpoint->send(error);
         }
     }
@@ -80,30 +87,42 @@ void JsonRpcServer::jsonRequestReceived(const QJsonObject& request,
                                                 return_value,
                                                 method_name);
 
-        JsonRpcEndpoint* endpoint = findClient(socket);
-        if (!endpoint) {
-            logError("invalid client socket, cannot send response");
-            return;
-        }
-
         endpoint->send(response);
     }
 }
 
-bool JsonRpcServer::dispatch(const QString& method_name,
+
+
+bool JsonRpcServer::dispatch(JsonRpcEndpoint* endpoint, const QString& complete_method_name,
                              const QVariant& params,
                              const QString& request_id,
-                             QVariant& return_value)
-{
-    for (auto s : m_services) {
-        const QMetaObject* meta_obj = s->metaObject();
+                             QVariant& return_value) {
+
+      for (auto service_pair : m_services) {
+        QString domain;
+        std::shared_ptr<QObject> service;
+        std::tie(domain, service) = service_pair;
+
+        if (!domain.isEmpty())
+          domain.append("/");
+
+        if (!domain.isEmpty() && !complete_method_name.startsWith(domain))
+          continue;
+
+        const auto method_name = complete_method_name.mid(domain.length());
+
+        if (method_name == "registerSignalHandler") {
+          return_value = registerSignal(endpoint, service, params);
+          return true;
+        }
+
+        const QMetaObject* meta_obj = service->metaObject();
         for (int i = 0; i < meta_obj->methodCount(); ++i) {
             auto meta_method = meta_obj->method(i);
-            if (meta_method.name() == method_name) {
+            if (QString::fromUtf8(meta_method.name()) == method_name) {
                 if (params.type() == QVariant::List ||
-                    params.type() == QVariant::StringList)
-                {
-                    if (call(s.get(),
+                    params.type() == QVariant::StringList) {
+                    if (invoke(service.get(),
                              meta_method,
                              params.toList(),
                              return_value))
@@ -111,7 +130,7 @@ bool JsonRpcServer::dispatch(const QString& method_name,
                         return true;
                     }
                 } else if (params.type() == QVariant::Map) {
-                    if (call(s.get(),
+                    if (invoke(service.get(),
                              meta_method,
                              params.toMap(),
                              return_value))
@@ -125,219 +144,199 @@ bool JsonRpcServer::dispatch(const QString& method_name,
     return false;
 }
 
-// based on https://gist.github.com/andref/2838534.
-bool JsonRpcServer::call(QObject* object,
-                         const QMetaMethod& meta_method,
-                         const QVariantList& args,
-                         QVariant& return_value)
-{
-    return_value = QVariant();
+QVariant JsonRpcServer::registerSignal(JsonRpcEndpoint* endpoint, std::shared_ptr<QObject> service, const QVariant& params) {
+  const auto& metaObject = service->metaObject();
 
-    QVariantList converted_args;
-    if (!convertArgs(meta_method, args, converted_args)) {
-        return false;
+  QString signalNameToLookFor;
+
+  QVariantMap result;
+  result.insert("resultCode", true);
+  result.insert("resultText", "Success!");
+
+  if (params.type() == QVariant::List || params.type() == QVariant::StringList) {
+    const auto list = params.toList();
+
+    if (list.isEmpty())
+      return signalResultObject(false, "No signal name given.");
+
+    signalNameToLookFor = list.first().toString();
+  } else if (params.type() == QVariant::Map) {
+    const auto map = params.toMap();
+
+    if (map.isEmpty())
+      return signalResultObject(false, "No signal name given.");
+
+    signalNameToLookFor = (*map.constBegin()).toString();
+  }
+
+  if (signalNameToLookFor.isEmpty())
+    return signalResultObject(false, "The parameter list is empty. No signal name given.");
+
+  for (int currentMethodIndex = 0; currentMethodIndex < metaObject->methodCount(); currentMethodIndex++) {
+    const auto& currentMethod = metaObject->method(currentMethodIndex);
+
+    if (currentMethod.methodType() != QMetaMethod::Signal)
+      continue;
+
+    if (currentMethod.methodSignature() != signalNameToLookFor)
+      continue;
+
+    qDebug() << QString("Found signal %1 in service %2. Sender is %3. Registering now if not already done...")
+                .arg(signalNameToLookFor, service->objectName()).arg((long) endpoint);
+
+    bool signalSpyFound = false;
+
+    for (auto element : m_signalspies) {
+      int registeredMethodIndex;
+      std::shared_ptr<QSignalSpy>  registeredSignalSpy;
+      QObject* registeredService;
+      std::tie(registeredService, registeredMethodIndex, std::ignore, registeredSignalSpy) = element;
+
+      if (service.get() == registeredService && registeredMethodIndex == currentMethodIndex) {
+        signalSpyFound = true;
+        m_signalspies.push_back(std::make_tuple(service.get(), currentMethodIndex, endpoint, registeredSignalSpy));
+        break;
+      }
     }
 
-    return doCall(object, meta_method, converted_args, return_value);
+    if (!signalSpyFound) {
+      const auto signalName = QByteArray("2").append(currentMethod.methodSignature());
+      auto signalSpy = std::make_shared<QSignalSpy>(service.get(), signalName.constData());
+      signalSpy->setParent(this);
+      QObject::connect(service.get(), signalName, this, SLOT(serviceSignalEmitted()));
+      m_signalspies.push_back(std::make_tuple(service.get(), currentMethodIndex, endpoint, signalSpy));
+    }
+
+    QObject::connect(endpoint, &QObject::destroyed, this, &JsonRpcServer::handleDestroyedEndpoint);
+
+    return signalResultObject(true, "Signal found and registered.");
+  }
+
+  return signalResultObject(false, "Signal not found.");
 }
 
-bool JsonRpcServer::call(QObject* object,
-                         const QMetaMethod& meta_method,
-                         const QVariantMap& args,
-                         QVariant& return_value)
-{
-    return_value = QVariant();
+void JsonRpcServer::handleDestroyedEndpoint(QObject* obj) {
+  auto endpoint = qobject_cast<JsonRpcEndpoint*>(obj);
 
-    QVariantList converted_args;
-    if (!convertArgs(meta_method, args, converted_args)) {
-        return false;
+  if (endpoint == nullptr)
+    return;
+
+  auto it = m_signalspies.begin();
+  while (it != m_signalspies.end()) {
+    auto currentEndpoint = std::get<2>(*it);
+
+    if (endpoint == currentEndpoint) {
+      it = m_signalspies.erase(it);
+    } else {
+      ++it;
     }
+  }
 
-    return doCall(object, meta_method, converted_args, return_value);
 }
 
-bool JsonRpcServer::convertArgs(const QMetaMethod& meta_method,
-                                const QVariantList& args,
-                                QVariantList& converted_args)
-{
-    QList<QByteArray> method_types = meta_method.parameterTypes();
-    if (args.size() != method_types.size()) {
-        // logError(QString("wrong number of arguments to method %1 -- "
-        //                  "expected %2 arguments, but got %3")
-        //          .arg(meta_method.methodSignature())
-        //          .arg(meta_method.parameterCount())
-        //          .arg(args.size()));
-        return false;
-    }
+void JsonRpcServer::serviceSignalEmitted() {
+  if (sender() == nullptr)
+    return;
 
-    for (int i = 0; i < method_types.size(); i++) {
-        const QVariant& arg = args.at(i);
+  const auto signal = sender()->metaObject()->method(senderSignalIndex());
+  QJsonDocument notificationDocument;
 
-        QByteArray arg_type_name = arg.typeName();
-        QByteArray param_type_name = method_types.at(i);
+  for (auto element : m_signalspies) {
+    int currentSignalIndex;
+    QObject* currentSender;
+    std::shared_ptr<QSignalSpy> currentSignalSpy;
+    JsonRpcEndpoint* currentEndpoint;
+    std::tie(currentSender, currentSignalIndex, currentEndpoint, currentSignalSpy) = element;
 
-        QVariant::Type param_type = QVariant::nameToType(param_type_name);
+    if (sender() == currentSender && senderSignalIndex() == currentSignalIndex) {
+      if (notificationDocument.isNull()) {
+        const auto parameters = currentSignalSpy->takeFirst();
 
-        QVariant copy = QVariant(arg);
+        QJsonObject paramObject;
+        for (int i = 0; i < parameters.count(); i++) {
+          const auto& parameter = parameters.at(i);
+          const auto parameterName = signal.parameterNames().at(i);
+          const auto parameterType = signal.parameterTypes().at(i);
+          QJsonValue parameterJson;
+          bool valid;
+          std::tie(valid, parameterJson) = convertValue(parameter);
 
-        if (copy.type() != param_type) {
-            if (copy.canConvert(param_type)) {
-                if (!copy.convert(param_type)) {
-                    // qDebug() << "cannot convert" << arg_type_name
-                    //          << "to" << param_type_name;
-                    return false;
-                }
-            }
+          if (!valid) {
+            qDebug() << QString("Could not encode parameter %1 of type %2 to a json representation. Cannot send signal...")
+                        .arg(QString::fromUtf8(parameterName), QString::fromUtf8(parameterType));
+            return;
+          }
+
+
+          paramObject.insert(QString(parameterName), QJsonObject(
+          {{QStringLiteral("typename"), parameterType.constData()},
+           {QStringLiteral("value"), parameterJson}}));
         }
 
-        converted_args << copy;
-    }
-    return true;
-}
+        QString name;
 
-bool JsonRpcServer::convertArgs(const QMetaMethod& meta_method,
-                                const QVariantMap& args,
-                                QVariantList& converted_args)
-{
-    QList<QByteArray> param_types = meta_method.parameterTypes();
-    if (args.size() != param_types.size()) {
-        // logError(QString("wrong number of arguments to method %1 -- "
-        //                  "expected %2 arguments, but got %3")
-        //          .arg(meta_method.methodSignature())
-        //          .arg(meta_method.parameterCount())
-        //          .arg(args.size()));
-        return false;
-    }
-
-    for (int i = 0; i < param_types.size(); i++) {
-        QByteArray param_name = meta_method.parameterNames().at(i);
-        if (args.find(param_name) == args.end()) {
-            // no arg with param name found
-            return false;
-        }
-        const QVariant& arg = args.value(param_name);
-
-        QByteArray arg_type_name = arg.typeName();
-        QByteArray param_type_name = param_types.at(i);
-
-        QVariant::Type param_type = QVariant::nameToType(param_type_name);
-
-        QVariant copy = QVariant(arg);
-
-        if (copy.type() != param_type) {
-            if (copy.canConvert(param_type)) {
-                if (!copy.convert(param_type)) {
-                    // qDebug() << "cannot convert" << arg_type_name
-                    //          << "to" << param_type_name;
-                    return false;
-                }
-            }
+        for(auto pair : m_services) {
+          if (sender() == pair.second.get()) {
+            name = pair.first;
+            break;
+          }
         }
 
-        converted_args << copy;
+        if (!name.isEmpty()) {
+          name.append("/");
+          name.append(signal.name().constData());
+        } else {
+          name = QString(signal.name().constData());
+        }
+
+        QJsonObject notificationObject {
+          { "jsonrpc", "2.0" },
+          { "method", name },
+          { "params", paramObject }
+        };
+
+        notificationDocument = QJsonDocument(notificationObject);
+        qDebug() << "Sending RPC notification for signal" << currentSignalSpy->signal();
+      }
+
+
+      currentEndpoint->send(notificationDocument);
     }
-    return true;
+  }
+
+  if (notificationDocument.isNull()) {
+    qDebug() << "Slot triggered, but no signal spyed.";
+  }
 }
 
-bool JsonRpcServer::doCall(QObject* object,
-                           const QMetaMethod& meta_method,
-                           QVariantList& converted_args,
-                           QVariant& return_value)
-{
-    QList<QGenericArgument> arguments;
-
-    for (int i = 0; i < converted_args.size(); i++) {
-
-        // Notice that we have to take a reference to the argument, else we'd be
-        // pointing to a copy that will be destroyed when this loop exits.
-        QVariant& argument = converted_args[i];
-
-        // A const_cast is needed because calling data() would detach the
-        // QVariant.
-        QGenericArgument generic_argument(
-            QMetaType::typeName(argument.userType()),
-            const_cast<void*>(argument.constData())
-        );
-
-        arguments << generic_argument;
-    }
-
-    void* ptr = nullptr;
-    const auto metaType = meta_method.returnType();
-    if (metaType != QMetaType::Void && metaType != QMetaType::UnknownType)
-      ptr = QMetaType::create(metaType, nullptr);
-
-    QGenericReturnArgument return_argument(
-        QMetaType::typeName(metaType),
-        ptr
-    );
-
-    // perform the call
-    bool ok = meta_method.invoke(
-        object,
-        Qt::DirectConnection,
-        return_argument,
-        arguments.value(0),
-        arguments.value(1),
-        arguments.value(2),
-        arguments.value(3),
-        arguments.value(4),
-        arguments.value(5),
-        arguments.value(6),
-        arguments.value(7),
-        arguments.value(8),
-        arguments.value(9)
-    );
-
-    const auto mapType = QMetaType::type("QVariantMap");
-    if (QMetaType::hasRegisteredConverterFunction(metaType, mapType)) {
-      auto dstPtr = QMetaType::create(mapType);
-      QMetaType::convert(ptr, metaType, dstPtr, mapType);
-
-      QVariantMap returnMap;
-      returnMap.insert("typeName", QMetaType::typeName(metaType));
-      returnMap.insert("object", QVariant(mapType, dstPtr));
-      return_value = returnMap;
-      QMetaType::destruct(mapType, dstPtr);
-    }
-
-    QMetaType::destruct(metaType, ptr);
-
-    if (!ok) {
-        // qDebug() << "calling" << meta_method.methodSignature() << "failed.";
-        return false;
-    }
-
-    return true;
-}
 
 QJsonDocument JsonRpcServer::createResponse(const QString& request_id,
                                             const QVariant& return_value,
                                             const QString& method_name)
 {
+
     QJsonObject res_json_obj {
         { "jsonrpc", "2.0" },
         { "id", request_id }
     };
 
-    if (return_value.type() == QVariant::Invalid) {
-        res_json_obj["result"] = QJsonValue();
-    } else if (return_value.type() == QVariant::List) {
-        auto ret_doc = QJsonDocument::fromVariant(return_value);
-        res_json_obj["result"] = ret_doc.array();
-    } else if (return_value.type() == QVariant::Map) {
-        auto ret_doc = QJsonDocument::fromVariant(return_value);
-        res_json_obj["result"] = ret_doc.object();
-    } else if (return_value.type() == QVariant::Int) {
-        res_json_obj["result"] = return_value.toInt();
-    } else if (return_value.type() == QVariant::Double) {
-        res_json_obj["result"] = return_value.toDouble();
-    } else if (return_value.type() == QVariant::Bool) {
-        res_json_obj["result"] = return_value.toBool();
-    } else if (return_value.type() >= QVariant::UserType) {
-        auto ret_doc = QJsonDocument::fromVariant(return_value);
-        res_json_obj["result"] = ret_doc.object();
+    const auto JsonType = qMetaTypeId<QJsonValue>();
+
+    QJsonValue return_json_value;
+    bool done = true;
+
+    if (return_value.userType() == JsonType) {
+      // If the return value is alreay a json value, just pass it through.
+      return_json_value = return_value.value<QJsonValue>();
+    } else if (return_value.canConvert<QJsonValue>()) {
+      // Maybe a (custom) converter was registered. Then we should use it.
+      return_json_value = return_value.value<QJsonValue>();
     } else {
+      // Standard conversion technique.
+      std::tie(done, return_json_value) = convertValue(return_value);
+    }
+
+    if (!done) {
         auto msg =
             QString("method '%1' has unknown return type: %2")
             .arg(method_name)
@@ -348,6 +347,7 @@ QJsonDocument JsonRpcServer::createResponse(const QString& request_id,
                                    msg);
     }
 
+    res_json_obj.insert(QStringLiteral("result"), return_json_value);
     return QJsonDocument(res_json_obj);
 }
 
@@ -375,7 +375,9 @@ void JsonRpcServer::logInfo(const QString& msg)
 
 void JsonRpcServer::logError(const QString& msg)
 {
-    m_logger->logError("JSON RPC server error: " + msg);
+  m_logger->logError("JSON RPC server error: " + msg);
 }
+
+
 
 }

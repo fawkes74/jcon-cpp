@@ -8,12 +8,16 @@
 
 #include <memory>
 
+#include "json_rpc_endpoint.h"
+#include "json_rpc_common.h"
+
+class QSignalSpy;
+
 namespace jcon {
 
-class JsonRpcEndpoint;
 class JsonRpcSocket;
 
-class JCON_API JsonRpcServer : public QObject
+class JCON_API JsonRpcServer : public QObject, public JsonRpcCommon
 {
     Q_OBJECT
 
@@ -21,9 +25,9 @@ public:
     JsonRpcServer(QObject* parent = nullptr, JsonRpcLoggerPtr logger = nullptr);
     virtual ~JsonRpcServer();
 
-    virtual void registerService(QObject* service);
+    virtual void registerService(std::shared_ptr<QObject> service, const QString& domain = QStringLiteral(""));
 
-    virtual void listen(int port) = 0;
+    virtual bool listen(int port) = 0;
     virtual void close() = 0;
 
 protected:
@@ -39,43 +43,26 @@ public slots:
 protected slots:
     virtual void newConnection() = 0;
     virtual void clientDisconnected(QObject* client_socket) = 0;
+    void serviceSignalEmitted();
+
 
 protected:
     void logInfo(const QString& msg);
     void logError(const QString& msg);
     JsonRpcLoggerPtr log() { return m_logger; }
 
+    QVariant registerSignal(JsonRpcEndpoint* endpoint, std::shared_ptr<QObject> service, const QVariant& params);
+    void handleDestroyedEndpoint(QObject* obj);
+    static inline QVariant signalResultObject(bool success, QString&& text) {
+      return QVariantMap({{"resultCode", success}, {"resultText", text}}); }
+
 private:
     static const QString InvalidRequestId;
 
-    bool dispatch(const QString& method_name,
+    bool dispatch(JsonRpcEndpoint* endpoint, const QString& complete_method_name,
                   const QVariant& params,
                   const QString& request_id,
                   QVariant& return_value);
-
-    bool call(QObject* object,
-              const QMetaMethod& meta_method,
-              const QVariantList& args,
-              QVariant& return_value);
-
-    bool call(QObject* object,
-              const QMetaMethod& meta_method,
-              const QVariantMap& args,
-              QVariant& return_value);
-
-
-    bool convertArgs(const QMetaMethod& meta_method,
-                     const QVariantList& args,
-                     QVariantList& converted);
-
-    bool convertArgs(const QMetaMethod& meta_method,
-                     const QVariantMap& args,
-                     QVariantList& converted);
-
-    bool doCall(QObject* object,
-                const QMetaMethod& meta_method,
-                QVariantList& converted_args,
-                QVariant& return_value);
 
     QJsonDocument createResponse(const QString& request_id,
                                  const QVariant& return_value,
@@ -85,7 +72,8 @@ private:
                                       const QString& message);
 
     JsonRpcLoggerPtr m_logger;
-    std::vector<std::shared_ptr<QObject>> m_services;
+    std::vector<std::pair<QString, std::shared_ptr<QObject>>> m_services;
+    std::vector<std::tuple<QObject*,int, JsonRpcEndpoint*, std::shared_ptr<QSignalSpy>>> m_signalspies;
 };
 
 }

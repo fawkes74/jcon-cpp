@@ -3,6 +3,8 @@
 
 #include <QVariantList>
 
+#include "jcon.h"
+
 class QString;
 
 namespace jcon {

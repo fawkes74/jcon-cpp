@@ -26,10 +26,10 @@ JsonRpcWebSocketServer::~JsonRpcWebSocketServer()
     m_server = nullptr;
 }
 
-void JsonRpcWebSocketServer::listen(int port)
+bool JsonRpcWebSocketServer::listen(int port)
 {
     logInfo(QString("listening on port %2").arg(port));
-    m_server->listen(QHostAddress::Any, port);
+    return m_server->listen(QHostAddress::Any, port);
 }
 
 void JsonRpcWebSocketServer::close()
