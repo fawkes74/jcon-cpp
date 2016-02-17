@@ -6,6 +6,11 @@
 #include <QDateTime>
 #include <QObject>
 
+namespace std {
+    template<typename T>
+    class shared_ptr;
+}
+
 namespace jcon {
 
 class JCON_API JsonRpcRequest : public QObject

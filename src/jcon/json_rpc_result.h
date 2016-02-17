@@ -1,6 +1,15 @@
 #ifndef JSON_RPC_RESULT_H
 #define JSON_RPC_RESULT_H
 
+#include <QVariant>
+
+#include "jcon.h"
+
+namespace std {
+    template<typename T>
+    class shared_ptr;
+}
+
 namespace jcon {
 
 class JCON_API JsonRpcResult
