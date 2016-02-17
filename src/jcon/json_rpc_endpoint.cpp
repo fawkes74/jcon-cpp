@@ -111,7 +111,6 @@ QByteArray JsonRpcEndpoint::processBuffer(const QByteArray& buffer,
 
     bool in_string = false;
     int brace_nesting_level = 0;
-    QByteArray json_obj;
 
     int i = 0;
     while (i < buf.length() ) {
