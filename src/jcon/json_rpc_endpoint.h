@@ -40,6 +40,8 @@ public:
 
     void send(const QJsonDocument& doc);
 
+    using WeakPtr = std::weak_ptr<JsonRpcEndpoint>;
+
 signals:
     /**
      * Emitted for every JSON object received.

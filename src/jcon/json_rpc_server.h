@@ -31,7 +31,7 @@ public:
     virtual void close() = 0;
 
 protected:
-    virtual JsonRpcEndpoint* findClient(QObject* socket) = 0;
+    virtual JsonRpcEndpointPtr findClient(QObject* socket) = 0;
 
 signals:
     /// Emitted when the RPC socket has an error.
@@ -51,15 +51,15 @@ protected:
     void logError(const QString& msg);
     JsonRpcLoggerPtr log() { return m_logger; }
 
-    QVariant registerSignal(JsonRpcEndpoint* endpoint, std::shared_ptr<QObject> service, const QVariant& params);
-    void handleDestroyedEndpoint(QObject* obj);
+    QVariant registerSignal(JsonRpcEndpointPtr endpoint, std::shared_ptr<QObject> service, const QVariant& params);
+    void handleDestroyedEndpoint();
     static inline QVariant signalResultObject(bool success, QString&& text) {
       return QVariantMap({{"resultCode", success}, {"resultText", text}}); }
 
 private:
     static const QString InvalidRequestId;
 
-    bool dispatch(JsonRpcEndpoint* endpoint, const QString& complete_method_name,
+    bool dispatch(JsonRpcEndpointPtr endpoint, const QString& complete_method_name,
                   const QVariant& params,
                   const QString& request_id,
                   QVariant& return_value);
@@ -73,7 +73,7 @@ private:
 
     JsonRpcLoggerPtr m_logger;
     std::vector<std::pair<QString, std::shared_ptr<QObject>>> m_services;
-    std::vector<std::tuple<QObject*,int, JsonRpcEndpoint*, std::shared_ptr<QSignalSpy>>> m_signalspies;
+    std::vector<std::tuple<QObject*,int, JsonRpcEndpoint::WeakPtr, std::shared_ptr<QSignalSpy>>> m_signalspies;
 };
 
 }

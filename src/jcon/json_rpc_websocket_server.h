@@ -26,7 +26,7 @@ public:
     void close() override;
 
 protected:
-    JsonRpcEndpoint* findClient(QObject* socket) override;
+    JsonRpcEndpointPtr findClient(QObject* socket) override;
 
 private slots:
     /// Called when the underlying QWebSocketServer gets a new client

@@ -37,11 +37,11 @@ void JsonRpcWebSocketServer::close()
     m_server->close();
 }
 
-JsonRpcEndpoint* JsonRpcWebSocketServer::findClient(QObject* socket)
+JsonRpcEndpointPtr JsonRpcWebSocketServer::findClient(QObject* socket)
 {
     QWebSocket* web_socket = qobject_cast<QWebSocket*>(socket);
     auto it = m_client_endpoints.find(web_socket);
-    return (it != m_client_endpoints.end()) ? it->second.get() : nullptr;
+    return (it != m_client_endpoints.end()) ? it->second : JsonRpcEndpointPtr();
 }
 
 void JsonRpcWebSocketServer::newConnection()
@@ -91,7 +91,7 @@ void JsonRpcWebSocketServer::clientDisconnected(QObject* client_socket)
     if (it == m_client_endpoints.end()) {
         logError("unknown client disconnected");
         return;
-    }
+    }    
     m_client_endpoints.erase(it);
 }
 

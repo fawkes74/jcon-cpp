@@ -79,21 +79,20 @@ void JsonRpcServer::jsonRequestReceived(const QJsonObject& request,
                                     msg);
             endpoint->send(error);
         }
-    }
-
-    // send response if request had valid ID
-    if (request_id != InvalidRequestId) {
-        QJsonDocument response = createResponse(request_id,
-                                                return_value,
-                                                method_name);
-
-        endpoint->send(response);
+    } else {
+        // send response if request had valid ID
+        if (request_id != InvalidRequestId) {
+            QJsonDocument response = createResponse(request_id,
+                                                    return_value,
+                                                    method_name);
+            endpoint->send(response);
+        }
     }
 }
 
 
 
-bool JsonRpcServer::dispatch(JsonRpcEndpoint* endpoint, const QString& complete_method_name,
+bool JsonRpcServer::dispatch(JsonRpcEndpointPtr endpoint, const QString& complete_method_name,
                              const QVariant& params,
                              const QString& request_id,
                              QVariant& return_value) {
@@ -144,7 +143,7 @@ bool JsonRpcServer::dispatch(JsonRpcEndpoint* endpoint, const QString& complete_
     return false;
 }
 
-QVariant JsonRpcServer::registerSignal(JsonRpcEndpoint* endpoint, std::shared_ptr<QObject> service, const QVariant& params) {
+QVariant JsonRpcServer::registerSignal(JsonRpcEndpointPtr endpoint, std::shared_ptr<QObject> service, const QVariant& params) {
   const auto& metaObject = service->metaObject();
 
   QString signalNameToLookFor;
@@ -181,8 +180,8 @@ QVariant JsonRpcServer::registerSignal(JsonRpcEndpoint* endpoint, std::shared_pt
     if (currentMethod.methodSignature() != signalNameToLookFor)
       continue;
 
-    qDebug() << QString("Found signal %1 in service %2. Sender is %3. Registering now if not already done...")
-                .arg(signalNameToLookFor, service->objectName()).arg((long) endpoint);
+    qDebug() << QString("Found signal %1 in service %2. Registering now if not already done...")
+                .arg(signalNameToLookFor, service->objectName());
 
     bool signalSpyFound = false;
 
@@ -194,7 +193,7 @@ QVariant JsonRpcServer::registerSignal(JsonRpcEndpoint* endpoint, std::shared_pt
 
       if (service.get() == registeredService && registeredMethodIndex == currentMethodIndex) {
         signalSpyFound = true;
-        m_signalspies.push_back(std::make_tuple(service.get(), currentMethodIndex, endpoint, registeredSignalSpy));
+        m_signalspies.push_back(std::make_tuple(service.get(), currentMethodIndex, JsonRpcEndpoint::WeakPtr(endpoint), registeredSignalSpy));
         break;
       }
     }
@@ -204,10 +203,10 @@ QVariant JsonRpcServer::registerSignal(JsonRpcEndpoint* endpoint, std::shared_pt
       auto signalSpy = std::make_shared<QSignalSpy>(service.get(), signalName.constData());
       signalSpy->setParent(this);
       QObject::connect(service.get(), signalName, this, SLOT(serviceSignalEmitted()));
-      m_signalspies.push_back(std::make_tuple(service.get(), currentMethodIndex, endpoint, signalSpy));
+      m_signalspies.push_back(std::make_tuple(service.get(), currentMethodIndex, JsonRpcEndpoint::WeakPtr(endpoint), signalSpy));
     }
 
-    QObject::connect(endpoint, &QObject::destroyed, this, &JsonRpcServer::handleDestroyedEndpoint);
+    QObject::connect(endpoint.get(), &QObject::destroyed, this, &JsonRpcServer::handleDestroyedEndpoint);
 
     return signalResultObject(true, "Signal found and registered.");
   }
@@ -215,17 +214,22 @@ QVariant JsonRpcServer::registerSignal(JsonRpcEndpoint* endpoint, std::shared_pt
   return signalResultObject(false, "Signal not found.");
 }
 
-void JsonRpcServer::handleDestroyedEndpoint(QObject* obj) {
-  auto endpoint = qobject_cast<JsonRpcEndpoint*>(obj);
-
-  if (endpoint == nullptr)
-    return;
+void JsonRpcServer::handleDestroyedEndpoint() {
 
   auto it = m_signalspies.begin();
   while (it != m_signalspies.end()) {
-    auto currentEndpoint = std::get<2>(*it);
+    const auto currentEndpoint = std::get<2>(*it);
 
-    if (endpoint == currentEndpoint) {
+    if (currentEndpoint.expired()) {
+      const auto currentSpy = std::get<3>(*it);      
+      if (currentSpy.use_count() == 2) {
+        // We have to check for use count == 2, since there a two shared pointers left,
+        // one in m_signalspies and one here in currentSpy.
+        auto sender = std::get<0>(*it);
+        const auto signalIndex = std::get<1>(*it);
+        const auto signature = "2" + sender->metaObject()->method(signalIndex).methodSignature();
+        QObject::disconnect(sender, signature, this, SLOT(serviceSignalEmitted()));
+      }
       it = m_signalspies.erase(it);
     } else {
       ++it;
@@ -245,8 +249,15 @@ void JsonRpcServer::serviceSignalEmitted() {
     int currentSignalIndex;
     QObject* currentSender;
     std::shared_ptr<QSignalSpy> currentSignalSpy;
-    JsonRpcEndpoint* currentEndpoint;
+    JsonRpcEndpoint::WeakPtr currentEndpoint;
     std::tie(currentSender, currentSignalIndex, currentEndpoint, currentSignalSpy) = element;
+
+    if (currentEndpoint.expired()) {
+      qDebug() << "There is an non existing endpoint in signal spy list. Probably a programming error...";
+      continue;
+    }
+
+    JsonRpcEndpointPtr currentEndpointAccess(currentEndpoint);
 
     if (sender() == currentSender && senderSignalIndex() == currentSignalIndex) {
       if (notificationDocument.isNull()) {
@@ -300,7 +311,7 @@ void JsonRpcServer::serviceSignalEmitted() {
       }
 
 
-      currentEndpoint->send(notificationDocument);
+      currentEndpointAccess->send(notificationDocument);
     }
   }
 

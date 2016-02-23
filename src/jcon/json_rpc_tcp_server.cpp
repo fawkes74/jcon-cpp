@@ -29,11 +29,11 @@ void JsonRpcTcpServer::close()
     m_server.close();
 }
 
-JsonRpcEndpoint* JsonRpcTcpServer::findClient(QObject* socket)
+JsonRpcEndpointPtr JsonRpcTcpServer::findClient(QObject* socket)
 {
     QTcpSocket* tcp_socket = qobject_cast<QTcpSocket*>(socket);
     auto it = m_client_endpoints.find(tcp_socket);
-    return (it != m_client_endpoints.end()) ? it->second.get() : nullptr;
+    return (it != m_client_endpoints.end()) ? it->second : JsonRpcEndpointPtr();
 }
 
 void JsonRpcTcpServer::newConnection()
