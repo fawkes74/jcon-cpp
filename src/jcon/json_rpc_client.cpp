@@ -205,7 +205,9 @@ bool JsonRpcClient::connectToServer(const QString& host, int port)
 void JsonRpcClient::connectToServerAsync(const QString& host, int port) {
   m_endpoint->connectToHostAsync(host, port);
 
-  connect(m_endpoint.get(), &JsonRpcEndpoint::jsonObjectReceived,
+  QObject::disconnect(m_endpoint.get(), &JsonRpcEndpoint::jsonObjectReceived,
+                   this, &JsonRpcClient::jsonResponseReceived);
+  QObject::connect(m_endpoint.get(), &JsonRpcEndpoint::jsonObjectReceived,
           this, &JsonRpcClient::jsonResponseReceived);
 }
 
@@ -214,7 +216,8 @@ void JsonRpcClient::connectToServerAsync(const QString& host, int port) {
 void JsonRpcClient::disconnectFromServer()
 {
     m_endpoint->disconnectFromHost();
-    m_endpoint->disconnect(this);
+    QObject::disconnect(m_endpoint.get(), &JsonRpcEndpoint::jsonObjectReceived,
+                     this, &JsonRpcClient::jsonResponseReceived);
 }
 
 bool JsonRpcClient::isConnected() const
