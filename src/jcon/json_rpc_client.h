@@ -40,11 +40,17 @@ public:
 
     bool isConnected() const;
 
-    QHostAddress clientAddress() const;
+    QHostAddress clientAddress() const {
+      return m_endpoint->localAddress();
+    }
     int clientPort() const;
 
-    QHostAddress serverAddress() const;
-    int serverPort() const;
+    QHostAddress serverAddress() const {
+      return m_endpoint->peerAddress();
+    }
+    int serverPort() const {
+      return m_endpoint->peerPort();
+    }
 
     template<typename... T>
     JsonRpcResultPtr call(const QString& method, T&&... params);
