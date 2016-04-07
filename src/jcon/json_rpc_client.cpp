@@ -225,25 +225,16 @@ bool JsonRpcClient::isConnected() const
     return m_endpoint->isConnected();
 }
 
-QHostAddress JsonRpcClient::clientAddress() const
-{
-    return m_endpoint->localAddress();
-}
+
 
 int JsonRpcClient::clientPort() const
 {
     return m_endpoint->localPort();
 }
 
-QHostAddress JsonRpcClient::serverAddress() const
-{
-    return m_endpoint->peerAddress();
-}
 
-int JsonRpcClient::serverPort() const
-{
-    return m_endpoint->peerPort();
-}
+
+
 
 void JsonRpcClient::syncCallResult(const QVariant& result)
 {

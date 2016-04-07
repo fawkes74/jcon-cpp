@@ -1,4 +1,5 @@
 #include "json_rpc_common.h"
+#include "transientmap.h"
 
 #include <QMetaMethod>
 #include <QDebug>
@@ -21,12 +22,12 @@ bool JsonRpcCommon::convertArgs(const QMetaMethod& meta_method,
     for (int i = 0; i < method_types.size(); i++) {
         const QVariant& arg = args.at(i);
 
-        QByteArray arg_type_name = arg.typeName();
-        QByteArray param_type_name = method_types.at(i);
+        const QByteArray arg_type_name = arg.typeName();
+        const QByteArray param_type_name = method_types.at(i);
 
-        QVariant::Type param_type = QVariant::nameToType(param_type_name);
+        auto param_type = QMetaType::type(param_type_name);
 
-        QVariant copy = QVariant(arg);
+        QVariant copy(arg);
 
         if (copy.type() != param_type) {
             if (copy.canConvert(param_type)) {
@@ -35,6 +36,15 @@ bool JsonRpcCommon::convertArgs(const QMetaMethod& meta_method,
                     //          << "to" << param_type_name;
                     return false;
                 }
+            } else if (copy.canConvert(qMetaTypeId<jcon::TransientMap>())) {
+              if (!copy.convert(qMetaTypeId<jcon::TransientMap>()))
+                return false;
+              if (!copy.canConvert(param_type))
+                return false;
+              if (!copy.convert(param_type))
+                return false;
+            } else {
+              return false;
             }
         }
 
@@ -157,6 +167,11 @@ bool JsonRpcCommon::doCall(QObject* object,
       returnMap.insert("typename", QMetaType::typeName(metaType));
       returnMap.insert("value", return_argument_variant.value<QVariantMap>());
       return_value = std::move(returnMap);
+    } else if (return_argument_variant.canConvert<jcon::TransientMap>()) {
+      QVariantMap returnMap;
+      returnMap.insert("typename", QMetaType::typeName(metaType));
+      returnMap.insert("value", QVariantMap(return_argument_variant.value<jcon::TransientMap>()));
+      return_value = std::move(returnMap);
     } else if (return_argument_variant.canConvert<QString>()) {
       QVariantMap returnMap;
       returnMap.insert("typename", QMetaType::typeName(metaType));
@@ -220,6 +235,13 @@ QVariant JsonRpcCommon::convertValue(const QJsonValue& parameter) const
   }
 
   auto value = map.value(QStringLiteral("value"));
+
+  if (value.canConvert(metaType)) {
+    value.convert(metaType);
+    return value;
+  }
+
+  value.convert(qMetaTypeId<jcon::TransientMap>());
 
   if (value.canConvert(metaType)) {
     value.convert(metaType);

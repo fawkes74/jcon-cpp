@@ -13,6 +13,8 @@ target_link_libraries(${PROJECT_NAME}
   Qt5::WebSockets
 )
 
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_constexpr)
+
 set_target_properties(${PROJECT_NAME} PROPERTIES
   AUTOMOC ON
   AUTOUIC ON
