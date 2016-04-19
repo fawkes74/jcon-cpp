@@ -72,7 +72,7 @@ private:
                                       const QString& message);
 
     JsonRpcLoggerPtr m_logger;
-    std::vector<std::pair<QString, std::shared_ptr<QObject>>> m_services;
+    std::map<QString, std::shared_ptr<QObject>> m_services;
     std::vector<std::tuple<QObject*,int, JsonRpcEndpoint::WeakPtr, std::shared_ptr<QSignalSpy>>> m_signalspies;
 };
 

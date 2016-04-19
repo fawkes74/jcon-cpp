@@ -30,13 +30,17 @@ JsonRpcServer::~JsonRpcServer()
 
 void JsonRpcServer::registerService(std::shared_ptr<QObject> service, const QString& domain)
 {
-  for (auto pair : m_services) {
-    if (pair.first == domain || pair.second == service) {
-      qDebug() << "Service or namespace already registered.";
-      return;
-    }
+  if (m_services.find(domain) != m_services.end()) {
+    qDebug() << "Service or namespace already registered.";
+    return;
   }
-  m_services.push_back({domain, service});
+
+  if (domain.contains('/')) {
+    qDebug() << "'/' is not a valid character in a namespace name! Cannot register...";
+    return;
+  }
+
+  m_services.insert({domain, service});
 }
 
 void JsonRpcServer::jsonRequestReceived(const QJsonObject& request,
@@ -97,49 +101,55 @@ bool JsonRpcServer::dispatch(JsonRpcEndpointPtr endpoint, const QString& complet
                              const QString& request_id,
                              QVariant& return_value) {
 
-      for (auto service_pair : m_services) {
-        QString domain;
-        std::shared_ptr<QObject> service;
-        std::tie(domain, service) = service_pair;
+      Q_UNUSED(request_id)
 
-        if (!domain.isEmpty())
-          domain.append("/");
+      const auto parts = complete_method_name.split('/');
 
-        if (!domain.isEmpty() && !complete_method_name.startsWith(domain))
-          continue;
+      if (parts.size() > 2)
+        return false; // Cannot handle method names with more than one slash inside. Expecting domain/method_name
 
-        const auto method_name = complete_method_name.mid(domain.length());
+      const auto domain = parts.size() == 2 ? parts.first() : QString();
+      const auto method_name = parts.size() == 2 ? parts.at(1) : parts.first();
 
-        if (method_name == "registerSignalHandler") {
+      // If no namespace is given, we will look for a service, registered with an empty namespace name.
+      auto result = m_services.find(domain);
+
+      if (result == m_services.end())
+        return false; // Not found matching namespace
+
+      auto service = result->second;
+
+      if (method_name == "registerSignalHandler") {
           return_value = registerSignal(endpoint, service, params);
           return true;
-        }
+      }
 
-        const QMetaObject* meta_obj = service->metaObject();
-        for (int i = 0; i < meta_obj->methodCount(); ++i) {
-            auto meta_method = meta_obj->method(i);
-            if (QString::fromUtf8(meta_method.name()) == method_name) {
-                if (params.type() == QVariant::List ||
-                    params.type() == QVariant::StringList) {
-                    if (invoke(service.get(),
-                             meta_method,
-                             params.toList(),
-                             return_value))
-                    {
-                        return true;
-                    }
-                } else if (params.type() == QVariant::Map) {
-                    if (invoke(service.get(),
+
+      const QMetaObject* meta_obj = service->metaObject();
+      for (int i = 0; i < meta_obj->methodCount(); ++i) {
+          auto meta_method = meta_obj->method(i);
+          if (QString::fromUtf8(meta_method.name()) == method_name) {
+              if (params.type() == QVariant::List ||
+                  params.type() == QVariant::StringList) {
+                  if (invoke(service.get(),
+                            meta_method,
+                            params.toList(),
+                           return_value))
+                  {
+                  return true;
+                  }
+              } else if (params.type() == QVariant::Map) {
+                  if (invoke(service.get(),
                              meta_method,
                              params.toMap(),
-                             return_value))
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
+                            return_value))
+                  {
+                      return true;
+                  }
+              }
+          }
+      }
+
     return false;
 }
 
