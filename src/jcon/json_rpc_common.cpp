@@ -29,7 +29,7 @@ bool JsonRpcCommon::convertArgs(const QMetaMethod& meta_method,
 
         QVariant copy(arg);
 
-        if (copy.type() != param_type) {
+        if (copy.type() != param_type && param_type != QMetaType::QVariant) {
             if (copy.canConvert(param_type)) {
                 if (!copy.convert(param_type)) {
                     // qDebug() << "cannot convert" << arg_type_name
@@ -122,7 +122,7 @@ bool JsonRpcCommon::doCall(QObject* object,
     }
 
     void* ptr = nullptr;
-    const auto metaType = meta_method.returnType();
+    auto metaType = meta_method.returnType();
     if (metaType != QMetaType::Void && metaType != QMetaType::UnknownType)
       ptr = QMetaType::create(metaType, nullptr);
 
@@ -159,7 +159,15 @@ bool JsonRpcCommon::doCall(QObject* object,
         return false;
     }
 
-    QVariant return_argument_variant = metaType == QMetaType::Void ? QVariant() : QVariant(metaType, ptr);
+    QVariant return_argument_variant;
+
+    if (metaType != QMetaType::Void && metaType != QMetaType::QVariant)
+      return_argument_variant = QVariant(metaType, ptr);
+    else if (metaType == QMetaType::QVariant) {
+      return_argument_variant = *static_cast<QVariant*>(ptr);
+      metaType = return_argument_variant.userType();
+    }
+
     QMetaType::destruct(metaType, ptr);
 
     if (return_argument_variant.canConvert<QVariantMap>()) {

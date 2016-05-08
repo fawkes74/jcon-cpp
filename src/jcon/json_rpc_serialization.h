@@ -5,17 +5,27 @@
 #include <QDebug>
 #include <QVariant>
 
+#include "transientmap.h"
+
 namespace jcon {
   template <typename T>
   inline QVariant valueToJson(const T& x) {
     auto value = QVariant::fromValue(x);
-    const auto type = qMetaTypeId<QVariantMap>();
 
-    if (value.type() == QVariant::UserType) {
-      if (value.canConvert(type))
-        value.convert(type);
-    }
+    if (value.canConvert(qMetaTypeId<QVariantMap>()))
+      value.convert(qMetaTypeId<QVariantMap>());
+    else if (value.canConvert(qMetaTypeId<TransientMap>())) {
+      value.convert(qMetaTypeId<TransientMap>());
+      value.convert(qMetaTypeId<QVariantMap>());
+    } else if (value.canConvert(qMetaTypeId<QString>()))
+      value.convert(qMetaTypeId<QString>());
+
     return value;
+  }
+
+  template <>
+  inline QVariant valueToJson<QVariant>(const QVariant& v) {
+    return v;
   }
 }
 

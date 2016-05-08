@@ -8,7 +8,7 @@
 #include "json_rpc_request.h"
 #include "json_rpc_result.h"
 #include "json_rpc_common.h"
-#include "transientmap.h"
+#include "json_rpc_serialization.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -168,15 +168,7 @@ JsonRpcRequestPtr JsonRpcClient::callAsync(const QString& method,
 template<typename T>
 void JsonRpcClient::convertToQVariantList(QVariantList& result, T&& x)
 {
-  auto value = QVariant::fromValue(x);
-  if (value.canConvert(qMetaTypeId<QVariantMap>()))
-    value.convert(qMetaTypeId<QVariantMap>());
-  else if (value.canConvert(qMetaTypeId<TransientMap>())) {
-    value.convert(qMetaTypeId<TransientMap>());
-    value.convert(qMetaTypeId<QVariantMap>());
-  } else if (value.canConvert(qMetaTypeId<QString>()))
-    value.convert(qMetaTypeId<QString>());
-
+  const auto value = valueToJson(x);
   result.push_front(value);
 }
 
