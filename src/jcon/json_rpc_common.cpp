@@ -9,27 +9,29 @@ bool JsonRpcCommon::convertArgs(const QMetaMethod& meta_method,
                                 const QVariantList& args,
                                 QVariantList& converted_args)
 {
-    QList<QByteArray> method_types = meta_method.parameterTypes();
-    if (args.size() != method_types.size()) {
-        // logError(QString("wrong number of arguments to method %1 -- "
-        //                  "expected %2 arguments, but got %3")
-        //          .arg(meta_method.methodSignature())
-        //          .arg(meta_method.parameterCount())
-        //          .arg(args.size()));
+    if (args.size() != meta_method.parameterCount()) {
+        qDebug() << QString("wrong number of arguments to method %1 -- "
+                          "expected %2 arguments, but got %3")
+                  .arg(QString::fromUtf8(meta_method.methodSignature()))
+                  .arg(meta_method.parameterCount())
+                  .arg(args.size());
         return false;
     }
 
-    for (int i = 0; i < method_types.size(); i++) {
-        const QVariant& arg = args.at(i);
+    for (int i = 0; i < meta_method.parameterCount(); i++) {
+        const auto& arg = args.at(i);
+        const auto param_type = meta_method.parameterType(i);
 
-        const QByteArray arg_type_name = arg.typeName();
-        const QByteArray param_type_name = method_types.at(i);
-
-        auto param_type = QMetaType::type(param_type_name);
+        if (param_type == QMetaType::UnknownType) {
+          qDebug() << QString("Tried to invoke method %1 with unknown parameter type %2. Use Q_DECLARE_METATYPE to register.")
+                      .arg(QString::fromUtf8(meta_method.name()))
+                      .arg(QString::fromUtf8(meta_method.parameterTypes().at(i)));
+          return false;
+        }
 
         QVariant copy(arg);
 
-        if (copy.type() != param_type && param_type != QMetaType::QVariant) {
+        if (copy.userType() != param_type && param_type != QMetaType::QVariant) {
             if (copy.canConvert(param_type)) {
                 if (!copy.convert(param_type)) {
                     // qDebug() << "cannot convert" << arg_type_name
