@@ -5,7 +5,7 @@ file(GLOB ${PROJECT_NAME}_sources *.cpp)
 
 #add_definitions(-DJCON_DLL -DJCON_DLL_EXPORTS)
 
-add_library(${PROJECT_NAME} SHARED ${${PROJECT_NAME}_headers} ${${PROJECT_NAME}_sources})
+add_library(${PROJECT_NAME} STATIC ${${PROJECT_NAME}_headers} ${${PROJECT_NAME}_sources})
 
 target_link_libraries(${PROJECT_NAME}
   Qt5::Test

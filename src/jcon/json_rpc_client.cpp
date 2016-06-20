@@ -116,11 +116,6 @@ void JsonRpcClient::registerNotificationHandler(QObject* obj, const char* method
   const auto metaMethod = obj->metaObject()->method(methodIndex);
 
   if ((metaMethod.methodType() == QMetaMethod::Method || metaMethod.methodType() == QMetaMethod::Slot) && metaMethod.isValid()) {
-    if (m_registered_notification_handlers.contains(notificationName, {obj, metaMethod})) {
-      qDebug() << "Already registered.";
-      return;
-    }
-
     QString notificationSignature = notificationName;
 
     if (!notificationSignature.contains('(')) {
@@ -128,7 +123,8 @@ void JsonRpcClient::registerNotificationHandler(QObject* obj, const char* method
       notificationSignature.append(parameters);
     }
 
-    m_registered_notification_handlers.insert(notificationName, {obj, metaMethod});
+    if (!m_registered_notification_handlers.contains(notificationName, {obj, metaMethod}))
+      m_registered_notification_handlers.insert(notificationName, {obj, metaMethod});
 
     if (isConnected())
       registerSignalHandler(notificationSignature);

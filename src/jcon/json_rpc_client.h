@@ -110,7 +110,7 @@ private:
     QJsonObject createRequestJsonObject(const QString& method,
                                         const QString& id);
 
-    void convertToQVariantList(QVariantList& result) {}
+    void convertToQVariantList(QVariantList& result) { Q_UNUSED(result) }
 
     template<typename T>
     void convertToQVariantList(QVariantList& result, T&& x);
