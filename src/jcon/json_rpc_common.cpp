@@ -249,7 +249,7 @@ std::tuple<bool,QJsonValue> JsonRpcCommon::convertValue(const QVariant& paramete
       return std::make_tuple(true, QJsonValue(parameter.toString()));
     else  {
       qDebug() << QString("Type not detected. Could not convert parameter/return value! Current QVariant type is %1").arg(parameter.typeName());
-      return std::make_tuple(true, QJsonValue());
+      return std::make_tuple(false, QJsonValue());
     }
   }
 }
