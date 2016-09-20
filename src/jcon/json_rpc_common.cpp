@@ -193,12 +193,15 @@ bool JsonRpcCommon::invoke(QObject* object,
                          const QVariantList& args,
                          QVariant& return_value)
 {
-    return_value = QVariant();
+    if (meta_method.parameterCount() != args.size())
+      return false; // Maybe we have to call a different overload!
 
     QVariantList converted_args;
     if (!convertArgs(meta_method, args, converted_args)) {
         return false;
     }
+
+    return_value = QVariant();
 
     return doCall(object, meta_method, converted_args, return_value);
 }
