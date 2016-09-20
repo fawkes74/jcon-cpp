@@ -129,7 +129,9 @@ bool JsonRpcCommon::doCall(QObject* object,
       ptr = QMetaType::create(metaType, nullptr);
 
     if (metaType == QMetaType::UnknownType)
-      qDebug() << "Trying to call method with unknown return value type. Please register with Q_DECLARE_METATYPE!";
+      qDebug() << QString("Trying to call method %1::%2 with unknown return value type. Please register with Q_DECLARE_METATYPE!")
+                  .arg(object->metaObject()->className())
+                  .arg(QString::fromUtf8(meta_method.name()));
 
     QGenericReturnArgument return_argument(
         QMetaType::typeName(metaType),
@@ -287,7 +289,7 @@ std::tuple<bool,QJsonValue> JsonRpcCommon::convertValue(const QVariant& paramete
     else if (parameter.canConvert<QString>())
       return std::make_tuple(true, QJsonValue(parameter.toString()));
     else  {
-      qDebug() << "Type not detected. Could not convert parameter/return value!";
+      qDebug() << QString("Type not detected. Could not convert parameter/return value! Current QVariant type is %1").arg(parameter.typeName());
       return std::make_tuple(true, QJsonValue());
     }
   }
