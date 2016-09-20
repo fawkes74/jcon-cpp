@@ -69,28 +69,42 @@ void JsonRpcServer::jsonRequestReceived(const QJsonObject& request,
         return;
     }
 
-    QVariant return_value;
-    if (!dispatch(endpoint, method_name, params, request_id, return_value)) {
-        auto msg = QString("method '%1' not found, check name and "
-                           "parameter types ").arg(method_name);
-        logError(msg);
+    try {
 
-        // send error response if request had valid ID
-        if (request_id != InvalidRequestId) {
-            QJsonDocument error =
-                createErrorResponse(request_id,
-                                    JsonRpcError::EC_MethodNotFound,
-                                    msg);
-            endpoint->send(error);
-        }
-    } else {
-        // send response if request had valid ID
-        if (request_id != InvalidRequestId) {
-            QJsonDocument response = createResponse(request_id,
-                                                    return_value,
-                                                    method_name);
-            endpoint->send(response);
-        }
+      QVariant return_value;
+      if (!dispatch(endpoint, method_name, params, request_id, return_value)) {
+          auto msg = QString("method '%1' not found, check name and "
+                             "parameter types ").arg(method_name);
+          logError(msg);
+
+          // send error response if request had valid ID
+          if (request_id != InvalidRequestId) {
+              QJsonDocument error =
+                  createErrorResponse(request_id,
+                                      JsonRpcError::EC_MethodNotFound,
+                                      msg);
+              endpoint->send(error);
+          }
+      } else {
+          // send response if request had valid ID
+          if (request_id != InvalidRequestId) {
+              QJsonDocument response = createResponse(request_id,
+                                                      return_value,
+                                                      method_name);
+              endpoint->send(response);
+          }
+      }
+    } catch (const std::exception& e) {
+      auto msg = QString("An exception occured. Message was: '%1'").arg(e.what());
+      logError(msg);
+
+      if (request_id != InvalidRequestId) {
+          QJsonDocument error =
+              createErrorResponse(request_id,
+                                  JsonRpcError::EC_InternalError,
+                                  msg);
+          endpoint->send(error);
+      }
     }
 }
 
