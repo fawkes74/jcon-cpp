@@ -220,43 +220,6 @@ bool JsonRpcCommon::invoke(QObject* object,
     return doCall(object, meta_method, converted_args, return_value);
 }
 
-QVariant JsonRpcCommon::convertValue(const QJsonValue& parameter) const
-{
-  const auto parameterAsVariant = parameter.toVariant();
-  const auto MapType = qMetaTypeId<QVariantMap>();
-  if (parameterAsVariant.type() != MapType)
-    return QVariant();
-
-  const auto& map = parameterAsVariant.value<QVariantMap>();
-
-  if (!map.contains(QStringLiteral("typename")) || !map.contains(QStringLiteral("value")))
-    return QVariant();
-
-  const auto& typeName = map.value(QStringLiteral("typename")).toString();
-  const auto& metaType = QMetaType::type(typeName.toUtf8());
-
-  if (metaType == QMetaType::UnknownType) {
-    qDebug() << QString("Typename %1, given in JSON RPC result, is unknown to the client.").arg(typeName);
-    return QVariant();
-  }
-
-  auto value = map.value(QStringLiteral("value"));
-
-  if (value.canConvert(metaType)) {
-    value.convert(metaType);
-    return value;
-  }
-
-  value.convert(qMetaTypeId<jcon::TransientMap>());
-
-  if (value.canConvert(metaType)) {
-    value.convert(metaType);
-    return value;
-  }
-
-  return QVariant();
-}
-
 std::tuple<bool,QJsonValue> JsonRpcCommon::convertValue(const QVariant& parameter) const
 {
   const auto type = parameter.type();

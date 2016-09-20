@@ -134,8 +134,6 @@ private:
     JsonRpcError m_last_error;
 
     QMultiHash<QString,QPair<QObject*,QMetaMethod> > m_registered_notification_handlers;
-
-    QVariantMap processParameterSet(const QJsonValue& parameters) const;
 };
 
 typedef std::shared_ptr<JsonRpcClient> JsonRpcClientPtr;

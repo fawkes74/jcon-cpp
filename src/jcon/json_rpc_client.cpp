@@ -329,22 +329,6 @@ void JsonRpcClient::handleNotificationFromServer(const QJsonObject& notification
     }
 }
 
-
-QVariantMap JsonRpcClient::processParameterSet(const QJsonValue& parameters) const {
-    QVariantMap result;
-
-    if (!parameters.isObject())
-      return result;
-
-    const auto parametersObj = parameters.toObject();
-
-    for (auto parameter = parametersObj.constBegin (); parameter != parametersObj.constEnd (); ++parameter) {
-      result.insert(parameter.key(), convertValue(parameter.value()));
-    }
-
-    return result;
-}
-
 void JsonRpcClient::getJsonErrorInfo(const QJsonObject& response,
                                      int& code,
                                      QString& message,

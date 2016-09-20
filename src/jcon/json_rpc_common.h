@@ -33,7 +33,6 @@ protected:
               QVariantList& converted_args,
               QVariant& return_value);
 
-  QVariant convertValue(const QJsonValue& parameter) const;
   std::tuple<bool, QJsonValue> convertValue(const QVariant& parameter) const;
 
 };
