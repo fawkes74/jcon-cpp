@@ -76,13 +76,9 @@ bool JsonRpcCommon::convertArgs(const QMetaMethod& meta_method,
             return false;
         }
         const QVariant& arg = args.value(param_name);
+        auto param_type = meta_method.parameterType(i);
 
-        QByteArray arg_type_name = arg.typeName();
-        QByteArray param_type_name = param_types.at(i);
-
-        QVariant::Type param_type = QVariant::nameToType(param_type_name);
-
-        QVariant copy = QVariant(arg);
+        QVariant copy(arg);
 
         if (copy.type() != param_type) {
             if (copy.canConvert(param_type)) {
