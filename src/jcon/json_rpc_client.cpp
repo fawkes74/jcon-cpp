@@ -300,7 +300,7 @@ void JsonRpcClient::jsonResponseReceived(const QJsonObject& response)
         return;
     }
 
-    QVariant result = convertValue(response.value(QStringLiteral("result")));
+    QVariant result = response.value(QStringLiteral("result")).toVariant();
 
     emit it->second->result(result);
     m_outstanding_requests.erase(it);
@@ -314,7 +314,7 @@ void JsonRpcClient::handleNotificationFromServer(const QJsonObject& notification
     QVariantMap params;
 
     if (notification.contains(QStringLiteral("params")))
-      params = processParameterSet(notification.value(QStringLiteral("params")).toObject());
+      params = notification.value(QStringLiteral("params")).toObject().toVariantMap();
 
     if (methodName.isUndefined()) {
       qDebug() << "No notification method given. Ignoring message...";

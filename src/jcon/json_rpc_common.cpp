@@ -173,20 +173,15 @@ bool JsonRpcCommon::doCall(QObject* object,
     QMetaType::destruct(metaType, ptr);
 
     if (return_argument_variant.canConvert<QVariantMap>()) {
-      QVariantMap returnMap;
-      returnMap.insert("typename", QMetaType::typeName(metaType));
-      returnMap.insert("value", return_argument_variant.value<QVariantMap>());
-      return_value = std::move(returnMap);
+      return_argument_variant.convert(qMetaTypeId<QVariantMap>());
+      return_value = std::move(return_argument_variant);
     } else if (return_argument_variant.canConvert<jcon::TransientMap>()) {
-      QVariantMap returnMap;
-      returnMap.insert("typename", QMetaType::typeName(metaType));
-      returnMap.insert("value", QVariantMap(return_argument_variant.value<jcon::TransientMap>()));
-      return_value = std::move(returnMap);
+      return_argument_variant.convert(qMetaTypeId<jcon::TransientMap>());
+      return_argument_variant.convert(qMetaTypeId<QVariantMap>());
+      return_value = std::move(return_argument_variant);
     } else if (return_argument_variant.canConvert<QString>()) {
-      QVariantMap returnMap;
-      returnMap.insert("typename", QMetaType::typeName(metaType));
-      returnMap.insert("value", return_argument_variant.value<QString>());
-      return_value = std::move(returnMap);
+      return_argument_variant.convert(qMetaTypeId<QString>());
+      return_value = std::move(return_argument_variant);
     }
 
     return true;

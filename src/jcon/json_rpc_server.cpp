@@ -289,9 +289,7 @@ void JsonRpcServer::serviceSignalEmitted() {
           }
 
 
-          paramObject.insert(QString(parameterName), QJsonObject(
-          {{QStringLiteral("typename"), parameterType.constData()},
-           {QStringLiteral("value"), parameterJson}}));
+          paramObject.insert(QString(parameterName), parameterJson);
         }
 
         QString name;
