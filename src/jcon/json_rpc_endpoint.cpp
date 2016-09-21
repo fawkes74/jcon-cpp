@@ -91,7 +91,7 @@ int JsonRpcEndpoint::peerPort() const
 
 void JsonRpcEndpoint::send(const QJsonDocument& doc)
 {
-    QByteArray bytes = doc.toJson();
+    QByteArray bytes = doc.toJson(QJsonDocument::Compact);
     m_socket->send(bytes);
 }
 
