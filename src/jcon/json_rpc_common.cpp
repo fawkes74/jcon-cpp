@@ -109,14 +109,19 @@ bool JsonRpcCommon::doCall(QObject* object,
         // pointing to a copy that will be destroyed when this loop exits.
         QVariant& argument = converted_args[i];
 
-        // A const_cast is needed because calling data() would detach the
-        // QVariant.
-        QGenericArgument generic_argument(
-            QMetaType::typeName(argument.userType()),
-            const_cast<void*>(argument.constData())
-        );
+        if (meta_method.parameterType(i) == QMetaType::QVariant) {
+          QGenericArgument generic_argument("QVariant", &argument);
+          arguments << generic_argument;
+        } else {
+          // A const_cast is needed because calling data() would detach the
+          // QVariant.
+          QGenericArgument generic_argument(
+                QMetaType::typeName(argument.userType()),
+                const_cast<void*>(argument.constData())
+                );
 
-        arguments << generic_argument;
+          arguments << generic_argument;
+        }
     }
 
     void* ptr = nullptr;
