@@ -292,18 +292,16 @@ void JsonRpcServer::serviceSignalEmitted() {
           const auto& parameter = parameters.at(i);
           const auto parameterName = signal.parameterNames().at(i);
           const auto parameterType = signal.parameterTypes().at(i);
-          QJsonValue parameterJson;
-          bool valid;
-          std::tie(valid, parameterJson) = convertValue(parameter);
 
-          if (!valid) {
+          try {
+            auto parameterJson = convertValue(parameter);
+            paramObject.insert(QString(parameterName), parameterJson);
+
+          } catch (const std::invalid_argument&) {
             qDebug() << QString("Could not encode parameter %1 of type %2 to a json representation. Cannot send signal...")
                         .arg(QString::fromUtf8(parameterName), QString::fromUtf8(parameterType));
             return;
           }
-
-
-          paramObject.insert(QString(parameterName), parameterJson);
         }
 
         QString name;
@@ -353,23 +351,12 @@ QJsonDocument JsonRpcServer::createResponse(const QString& request_id,
         { "id", request_id }
     };
 
-    const auto JsonType = qMetaTypeId<QJsonValue>();
+    try {
+      auto return_json_value = convertValue(return_value);
+      res_json_obj.insert(QStringLiteral("result"), return_json_value);
+      return QJsonDocument(res_json_obj);
 
-    QJsonValue return_json_value;
-    bool done = true;
-
-    if (return_value.userType() == JsonType) {
-      // If the return value is alreay a json value, just pass it through.
-      return_json_value = return_value.value<QJsonValue>();
-    } else if (return_value.canConvert<QJsonValue>()) {
-      // Maybe a (custom) converter was registered. Then we should use it.
-      return_json_value = return_value.value<QJsonValue>();
-    } else {
-      // Standard conversion technique.
-      std::tie(done, return_json_value) = convertValue(return_value);
-    }
-
-    if (!done) {
+    } catch (std::invalid_argument&) {
         auto msg =
             QString("method '%1' has unknown return type: %2")
             .arg(method_name)
@@ -379,9 +366,6 @@ QJsonDocument JsonRpcServer::createResponse(const QString& request_id,
                                    JsonRpcError::EC_InvalidRequest,
                                    msg);
     }
-
-    res_json_obj.insert(QStringLiteral("result"), return_json_value);
-    return QJsonDocument(res_json_obj);
 }
 
 QJsonDocument JsonRpcServer::createErrorResponse(const QString& request_id,

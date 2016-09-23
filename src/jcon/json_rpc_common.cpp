@@ -125,17 +125,17 @@ bool JsonRpcCommon::doCall(QObject* object,
     }
 
     void* ptr = nullptr;
-    auto metaType = meta_method.returnType();
-    if (metaType != QMetaType::Void && metaType != QMetaType::UnknownType)
-      ptr = QMetaType::create(metaType, nullptr);
+    auto returnMetaType = meta_method.returnType();
+    if (returnMetaType != QMetaType::Void && returnMetaType != QMetaType::UnknownType)
+      ptr = QMetaType::create(returnMetaType, nullptr);
 
-    if (metaType == QMetaType::UnknownType)
+    if (returnMetaType == QMetaType::UnknownType)
       qDebug() << QString("Trying to call method %1::%2 with unknown return value type. Please register with Q_DECLARE_METATYPE!")
                   .arg(object->metaObject()->className())
                   .arg(QString::fromUtf8(meta_method.name()));
 
     QGenericReturnArgument return_argument(
-        QMetaType::typeName(metaType),
+        QMetaType::typeName(returnMetaType),
         ptr
     );
 
@@ -164,28 +164,16 @@ bool JsonRpcCommon::doCall(QObject* object,
         return false;
     }
 
-    QVariant return_argument_variant;
-
-    if (metaType != QMetaType::Void && metaType != QMetaType::QVariant)
-      return_argument_variant = QVariant(metaType, ptr);
-    else if (metaType == QMetaType::QVariant) {
-      return_argument_variant = *static_cast<QVariant*>(ptr);
-      metaType = return_argument_variant.userType();
+    if (returnMetaType != QMetaType::Void && returnMetaType != QMetaType::QVariant)
+      return_value = QVariant(returnMetaType, ptr);
+    else if (returnMetaType == QMetaType::QVariant) {
+      return_value = *reinterpret_cast<QVariant*>(ptr);
+      returnMetaType = return_value.userType();
+    } else if (returnMetaType == QMetaType::Void) {
+      return_value = QVariant::fromValue(std::false_type());
     }
 
-    QMetaType::destruct(metaType, ptr);
-
-    if (return_argument_variant.canConvert<QVariantMap>()) {
-      return_argument_variant.convert(qMetaTypeId<QVariantMap>());
-      return_value = std::move(return_argument_variant);
-    } else if (return_argument_variant.canConvert<jcon::TransientMap>()) {
-      return_argument_variant.convert(qMetaTypeId<jcon::TransientMap>());
-      return_argument_variant.convert(qMetaTypeId<QVariantMap>());
-      return_value = std::move(return_argument_variant);
-    } else if (return_argument_variant.canConvert<QString>()) {
-      return_argument_variant.convert(qMetaTypeId<QString>());
-      return_value = std::move(return_argument_variant);
-    }
+    QMetaType::destruct(returnMetaType, ptr);
 
     return true;
 }
@@ -225,9 +213,9 @@ bool JsonRpcCommon::invoke(QObject* object,
     return doCall(object, meta_method, converted_args, return_value);
 }
 
-std::tuple<bool,QJsonValue> JsonRpcCommon::convertValue(const QVariant& parameter) const
+QJsonValue JsonRpcCommon::convertValue(const QVariant& parameter) const
 {
-  const auto type = parameter.type();
+  const auto type = parameter.userType();
 
   switch (type) {
   case QMetaType::Bool:
@@ -244,17 +232,24 @@ std::tuple<bool,QJsonValue> JsonRpcCommon::convertValue(const QVariant& paramete
   case QMetaType::QVariantHash:
     // These types are directly supported by QJsonValue,
     // no conversion here needed.
-    return std::make_tuple(true, QJsonValue::fromVariant(parameter));
-  default:
-    if (parameter.canConvert<QVariantMap>())
-      return std::make_tuple(true, QJsonValue::fromVariant(parameter.toMap()));
-    else if (parameter.canConvert<QVariantList>())
-      return std::make_tuple(true, QJsonValue::fromVariant(parameter.toList()));
-    else if (parameter.canConvert<QString>())
-      return std::make_tuple(true, QJsonValue(parameter.toString()));
-    else  {
-      qDebug() << QString("Type not detected. Could not convert parameter/return value! Current QVariant type is %1").arg(parameter.typeName());
-      return std::make_tuple(false, QJsonValue());
-    }
+    return QJsonValue::fromVariant(parameter);
   }
+
+  if (type == qMetaTypeId<std::false_type>())
+    // In this case return value was void and we construct a QJsonValue which is of type Null.
+    return QJsonValue();
+
+  if (parameter.canConvert<QJsonValue>())
+    return parameter.value<QJsonValue>();
+
+  if (parameter.canConvert<QVariantMap>())
+    return QJsonValue::fromVariant(parameter.toMap());
+
+  if (parameter.canConvert<QVariantList>())
+    return QJsonValue::fromVariant(parameter.toList());
+
+  if (parameter.canConvert<QString>())
+    return QJsonValue(parameter.toString());
+
+  throw std::invalid_argument(QString("Could not convert given QVariant of type %1").arg(parameter.typeName()).toStdString());
 }

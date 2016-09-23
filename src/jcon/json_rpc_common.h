@@ -1,6 +1,8 @@
 #ifndef JSONRPCCOMMON_H
 #define JSONRPCCOMMON_H
 
+#include <type_traits>
+
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -33,8 +35,10 @@ protected:
               QVariantList& converted_args,
               QVariant& return_value);
 
-  std::tuple<bool, QJsonValue> convertValue(const QVariant& parameter) const;
+  QJsonValue convertValue(const QVariant& parameter) const;
 
 };
+
+Q_DECLARE_METATYPE(std::false_type)
 
 #endif // JSONRPCCOMMON_H
