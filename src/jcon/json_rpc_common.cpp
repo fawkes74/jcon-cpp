@@ -80,7 +80,7 @@ bool JsonRpcCommon::convertArgs(const QMetaMethod& meta_method,
 
         QVariant copy(arg);
 
-        if (copy.type() != param_type) {
+        if (static_cast<int>(copy.type()) != param_type) {
             if (copy.canConvert(param_type)) {
                 if (!copy.convert(param_type)) {
                     // qDebug() << "cannot convert" << arg_type_name
