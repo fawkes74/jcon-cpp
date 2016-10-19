@@ -311,10 +311,10 @@ void JsonRpcClient::handleNotificationFromServer(const QJsonObject& notification
 {
     const auto methodName = notification.value(QStringLiteral("method"));
 
-    QVariantMap params;
+    QVariantList params;
 
     if (notification.contains(QStringLiteral("params")))
-      params = notification.value(QStringLiteral("params")).toObject().toVariantMap();
+      params = notification.value(QStringLiteral("params")).toArray().toVariantList();
 
     if (methodName.isUndefined()) {
       qDebug() << "No notification method given. Ignoring message...";

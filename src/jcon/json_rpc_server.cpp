@@ -287,15 +287,14 @@ void JsonRpcServer::serviceSignalEmitted() {
       if (notificationDocument.isNull()) {
         const auto parameters = currentSignalSpy->takeFirst();
 
-        QJsonObject paramObject;
+        QJsonArray paramArray;
         for (int i = 0; i < parameters.count(); i++) {
           const auto& parameter = parameters.at(i);
           const auto parameterName = signal.parameterNames().at(i);
           const auto parameterType = signal.parameterTypes().at(i);
 
           try {
-            auto parameterJson = convertValue(parameter);
-            paramObject.insert(QString(parameterName), parameterJson);
+            paramArray.append(convertValue(parameter));
 
           } catch (const std::invalid_argument&) {
             qDebug() << QString("Could not encode parameter %1 of type %2 to a json representation. Cannot send signal...")
@@ -322,8 +321,8 @@ void JsonRpcServer::serviceSignalEmitted() {
 
         QJsonObject notificationObject {
           { "jsonrpc", "2.0" },
-          { "method", name },
-          { "params", paramObject }
+          { "method", std::move(name) },
+          { "params", std::move(paramArray) }
         };
 
         notificationDocument = QJsonDocument(notificationObject);
