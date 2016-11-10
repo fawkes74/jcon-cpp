@@ -28,7 +28,22 @@ JsonRpcServer::~JsonRpcServer()
 {
 }
 
-void JsonRpcServer::registerService(std::shared_ptr<QObject> service, const QString& domain)
+void JsonRpcServer::registerService(const std::shared_ptr<QObject>& service, const QString& domain)
+{
+  if (m_services.find(domain) != m_services.end()) {
+    qDebug() << "Service or namespace already registered.";
+    return;
+  }
+
+  if (domain.contains('/')) {
+    qDebug() << "'/' is not a valid character in a namespace name! Cannot register...";
+    return;
+  }
+
+  m_services.insert({domain, service});
+}
+
+void JsonRpcServer::registerService(QObject* service, const QString& domain)
 {
   if (m_services.find(domain) != m_services.end()) {
     qDebug() << "Service or namespace already registered.";
@@ -167,7 +182,7 @@ bool JsonRpcServer::dispatch(JsonRpcEndpointPtr endpoint, const QString& complet
     return false;
 }
 
-QVariant JsonRpcServer::registerSignal(JsonRpcEndpointPtr endpoint, std::shared_ptr<QObject> service, const QVariant& params) {
+QVariant JsonRpcServer::registerSignal(JsonRpcEndpointPtr endpoint, JsonRpcServer::UniversalPointer service, const QVariant& params) {
   const auto& metaObject = service->metaObject();
 
   QString signalNameToLookFor;

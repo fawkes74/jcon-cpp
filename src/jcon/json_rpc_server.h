@@ -21,11 +21,48 @@ class JCON_API JsonRpcServer : public QObject, public JsonRpcCommon
 {
     Q_OBJECT
 
+  enum class PointerType {
+    SharedPointer,
+    RawPointer
+  };
+
+  struct UniversalPointer {
+    PointerType type = PointerType::SharedPointer;
+    std::shared_ptr<QObject> sharedPtr;
+    QObject* rawPtr = nullptr;
+
+    UniversalPointer(const std::shared_ptr<QObject>& ptr) :
+      type(PointerType::SharedPointer),
+      sharedPtr(ptr),
+      rawPtr(nullptr)
+    { }
+
+    UniversalPointer(QObject* ptr) :
+      type(PointerType::RawPointer),
+      rawPtr(ptr)
+    { }
+
+    QObject* operator->() {
+      if (type == PointerType::SharedPointer)
+        return sharedPtr.get();
+      else
+        return rawPtr;
+    }
+
+    QObject* get() {
+      if (type == PointerType::SharedPointer)
+        return sharedPtr.get();
+      else
+        return rawPtr;
+    }
+  };
+
 public:
     JsonRpcServer(QObject* parent = nullptr, JsonRpcLoggerPtr logger = nullptr);
     virtual ~JsonRpcServer();
 
-    virtual void registerService(std::shared_ptr<QObject> service, const QString& domain = QStringLiteral(""));
+    virtual void registerService(const std::shared_ptr<QObject>& service, const QString& domain = QString());
+    virtual void registerService(QObject* service, const QString& domain = QString());
 
     virtual bool listen(int port) = 0;
     virtual void close() = 0;
@@ -51,7 +88,7 @@ protected:
     void logError(const QString& msg);
     JsonRpcLoggerPtr log() { return m_logger; }
 
-    QVariant registerSignal(JsonRpcEndpointPtr endpoint, std::shared_ptr<QObject> service, const QVariant& params);
+    QVariant registerSignal(JsonRpcEndpointPtr endpoint, UniversalPointer service, const QVariant& params);
     void handleDestroyedEndpoint();
     static inline QVariant signalResultObject(bool success, QString&& text) {
       return QVariantMap({{"resultCode", success}, {"resultText", text}}); }
@@ -72,7 +109,7 @@ private:
                                       const QString& message);
 
     JsonRpcLoggerPtr m_logger;
-    std::map<QString, std::shared_ptr<QObject>> m_services;
+    std::map<QString, UniversalPointer> m_services;
     std::vector<std::tuple<QObject*,int, JsonRpcEndpoint::WeakPtr, std::shared_ptr<QSignalSpy>>> m_signalspies;
 };
 
